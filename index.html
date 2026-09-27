@@ -2686,31 +2686,40 @@ Solicitud posterior: ${solicitud || 'Analizar el PDF adjunto.'}`;
        C) GENERACIÓN DE IMÁGENES — ELIX AI IMAGES (MUSE)
        ========================================================= */
     function elixNormalizarImagenTexto(s=''){
-        return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+        return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     }
 
     function elixPareceSolicitudImagen(texto, tieneAdjuntos=false){
         const t=elixNormalizarImagenTexto(texto);
         if(!t) return false;
-        if(/(analiza|describe|interpreta|explica|resume|resuelve|lee|extrae|que dice)/.test(t)
-            && /(imagen|foto|captura|adjunt)/.test(t)
-            && !/(crea|crear|genera|generar|haz|hacer|disena|diseña|dibuja|ilustra|renderiza|poster|infografia|diagrama)/.test(t)) {
-            return false;
-        }
-        const objeto = /(imagen|infografia|poster|póster|ilustracion|ilustración|render|dibujo|diagrama|esquema|banner|portada|afiche|foto|fotografia|fotografía|wallpaper|thumbnail|miniatura|meme)/.test(t);
-        const accion = /(crea|crear|genera|generar|haz|hacer|disena|diseña|dibuja|ilustra|renderiza|produce|elabora|arma|prepara)/.test(t);
-        if(/^(imagen|infografia|poster|diagrama|ilustracion|render|dibujo)/.test(t)) return true;
-        if(objeto && accion) return true;
-        if(/(genera|crea|haz).{0,26}(de eso|de esto|basad[oa] en|a partir de|con base en)/.test(t) && objeto) return true;
+
+        // Si el usuario pide leer/analizar una imagen adjunta, no generamos una nueva.
+        const esLecturaVisual=/\b(analiza|analizar|describe|describir|interpreta|interpretar|explica|explicar|resume|resumir|resuelve|resolver|lee|leer|extrae|extraer|que dice)\b/.test(t)
+            && /\b(imagen|foto|captura|adjunt)/.test(t);
+
+        // Formas naturales de pedir creación visual: "hazme", "créame", "genérame", etc.
+        const accion=/\b(crea|crear|creame|genera|generar|generame|haz|hazme|hacer|haceme|disena|disenar|disename|dibuja|dibujar|dibujame|ilustra|ilustrar|ilustrame|renderiza|renderizar|renderizame|produce|producir|elabora|elaborar|elaborame|arma|armar|prepara|preparar|preparame)\b/.test(t);
+        const objeto=/\b(imagen|infografia|poster|ilustracion|render|dibujo|diagrama|esquema|banner|portada|afiche|foto|fotografia|wallpaper|thumbnail|miniatura|meme)\b/.test(t);
+        const deseo=/\b(quiero|quisiera|necesito|deseo)\b/.test(t) && objeto;
+
+        if(esLecturaVisual && !accion && !deseo) return false;
+        if(/^(imagen|infografia|poster|diagrama|ilustracion|render|dibujo)\b/.test(t)) return true;
+        if(objeto && (accion || deseo)) return true;
+
+        // Pedidos contextuales: "hazme una imagen de esto", "genera un diagrama de lo anterior".
+        if(/\b(crea|creame|genera|generame|haz|hazme|disena|disename|dibuja|dibujame|ilustra|ilustrame|renderiza|renderizame)\b/.test(t)
+            && /\b(de eso|de esto|sobre eso|sobre esto|basad[oa] en|a partir de|con base en|de lo anterior)\b/.test(t)
+            && objeto) return true;
+
         return false;
     }
 
     function elixResolverTamanoImagen(texto=''){
         const t=elixNormalizarImagenTexto(texto);
-        if(/(9:16|vertical|portrait|retrato|story|historia|infografia|poster|afiche)/.test(t)) return { width:1024, height:1536 };
-        if(/(16:9|21:9|horizontal|landscape|banner|panoram|cabecera|header)/.test(t)) return { width:1536, height:1024 };
-        if(/(4:3)/.test(t)) return { width:1365, height:1024 };
-        if(/(3:4)/.test(t)) return { width:1024, height:1365 };
+        if(/\b(9:16|vertical|portrait|retrato|story|historia|infografia|poster|afiche)\b/.test(t)) return { width:1024, height:1536 };
+        if(/\b(16:9|21:9|horizontal|landscape|banner|panoram|cabecera|header)\b/.test(t)) return { width:1536, height:1024 };
+        if(/\b(4:3)\b/.test(t)) return { width:1365, height:1024 };
+        if(/\b(3:4)\b/.test(t)) return { width:1024, height:1365 };
         return { width:1024, height:1024 };
     }
 
@@ -2720,7 +2729,7 @@ Solicitud posterior: ${solicitud || 'Analizar el PDF adjunto.'}`;
     }
 
     function elixSolicitudApuntaAlContexto(texto=''){
-        return /(eso|esto|anterior|arriba|chat|conversacion|conversación|lo de arriba|última respuesta|ultima respuesta|basad[oa] en el chat|a partir del chat|de lo anterior)/i.test(String(texto||''));
+        return /\b(eso|esto|anterior|arriba|chat|conversacion|conversación|lo de arriba|última respuesta|ultima respuesta|basad[oa] en el chat|a partir del chat|de lo anterior)\b/i.test(String(texto||''));
     }
 
     function elixConstruirPromptImagen(chat, solicitud, contextoArchivos=''){
