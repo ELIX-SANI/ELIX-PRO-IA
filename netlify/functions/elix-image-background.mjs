@@ -128,7 +128,6 @@ async function requestOpenAICompatible({ url, apiKey, model, prompt, width, heig
       prompt,
       n: 1,
       size: `${width}x${height}`,
-      quality: 'high',
       response_format: 'b64_json',
     })
   }, timeout);
