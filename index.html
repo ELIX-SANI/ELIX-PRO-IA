@@ -578,8 +578,8 @@ textarea::placeholder { color: #52525b; }
                             Modo de Análisis: 
                             <select id="thinking-level">
                                 <option value="low">Rápido (Directo)</option>
-                                <option value="medium" selected>Estándar (Equilibrado)</option>
-                                <option value="high">Riguroso (Técnico)</option>
+                                <option value="medium">Estándar (Equilibrado)</option>
+                                <option value="high" selected>Riguroso (Técnico)</option>
                                 <option value="max">Profundo (Élite)</option>
                             </select>
                         </div>
@@ -731,9 +731,24 @@ REGLAS:
 - Respeta estrictamente cualquier directiva académica, bibliográfica, matemática o de formato recibida junto con esta instrucción.
 - Evita introducciones genéricas, repeticiones del enunciado y conclusiones que solo repitan lo ya explicado.
 
+IMPORTANTE:
+Toda expresión matemática, química o científica que requiera notación deberá escribirse exclusivamente en LaTeX válido.
+
+Para fórmulas dentro de una oración utiliza:
+\( ... \)
+
+Para ecuaciones independientes utiliza:
+\[ ... \]
+
+Nunca escribas fórmulas como texto plano.
+Nunca coloques fórmulas dentro de bloques de código Markdown.
+Nunca uses ```latex, ```math ni backticks para contener ecuaciones.
+No mezcles sintaxis Unicode matemática con LaTeX cuando exista una representación LaTeX equivalente.
+Verifica que cada \frac{}, \sqrt{}, subíndice, superíndice, matriz y entorno tenga sus llaves y delimitadores correctamente cerrados.
+
 Objetivo: entregar una respuesta técnicamente sólida, clara y suficientemente desarrollada, sin llegar al nivel de exhaustividad de los modos Riguroso o Profundo.`,
-            high: "Instrucción CRÍTICA: Eres un modelo estrictamente técnico y formal. NO debes hacer nada intuitivo ni inventar información. Basa tu respuesta EXCLUSIVAMENTE en literatura científica de alto nivel (mínimo revistas científicas Q3, libros formales o tesis). Enfócate única y exclusivamente en responder lo que pide el prompt de forma técnica, sin suposiciones.",
-            max: "Instrucción CRÍTICA MÁXIMA e inquebrantable: Eres el nivel de rigor máximo estrictamente técnico y formal. NO debes hacer nada intuitivo ni inventar información. Basa tu respuesta EXCLUSIVAMENTE en literatura científica del más alto nivel solo revistas de primer nivel revisadas por pares (ej. Science, Nature) o literatura de universidades de élite (MIT, Harvard). MINIMO debes usar 10 fuentes bibliográficas para tu respuesta. CERO literatura de tesis. Enfócate única y exclusivamente en responder lo que pide el prompt de forma técnica, sin suposiciones. Debes redactar la respuesta con lenguaje científico de alto nivel y sin cometer ningún error de redacción, grámática u ortografía."
+            high: "Instrucción CRÍTICA: Eres un modelo estrictamente técnico y formal. NO debes hacer nada intuitivo ni inventar información. Basa tu respuesta EXCLUSIVAMENTE en literatura científica de alto nivel (mínimo revistas científicas Q3, libros formales o tesis). Enfócate única y exclusivamente en responder lo que pide el prompt de forma técnica, sin suposiciones. IMPORTANTE: Toda expresión matemática, química o científica que requiera notación deberá escribirse exclusivamente en LaTeX válido. Para fórmulas dentro de una oración utiliza \(...\). Para ecuaciones independientes utiliza \(...\). Nunca escribas fórmulas como texto plano. Nunca coloques fórmulas dentro de bloques de código Markdown. Nunca uses latex, math ni backticks para contener ecuaciones. No mezcles sintaxis Unicode matemática con LaTeX cuando exista una representación LaTeX equivalente. Verifica que cada \frac{}, \sqrt{}, subíndice, superíndice, matriz y entorno tenga sus llaves y delimitadores correctamente cerrados.",
+            max: "Instrucción CRÍTICA MÁXIMA e inquebrantable: Eres el nivel de rigor máximo estrictamente técnico y formal. NO debes hacer nada intuitivo ni inventar información. Basa tu respuesta EXCLUSIVAMENTE en literatura científica del más alto nivel solo revistas de primer nivel revisadas por pares (ej. Science, Nature) o literatura de universidades de élite (MIT, Harvard). MINIMO debes usar 10 fuentes bibliográficas para tu respuesta. CERO literatura de tesis. Enfócate única y exclusivamente en responder lo que pide el prompt de forma técnica, sin suposiciones. Debes redactar la respuesta con lenguaje científico de alto nivel y sin cometer ningún error de redacción, grámática u ortografía. IMPORTANTE: Toda expresión matemática, química o científica que requiera notación deberá escribirse exclusivamente en LaTeX válido. Para fórmulas dentro de una oración utiliza \(...\). Para ecuaciones independientes utiliza \(...\). Nunca escribas fórmulas como texto plano. Nunca coloques fórmulas dentro de bloques de código Markdown. Nunca uses latex, math ni backticks para contener ecuaciones. No mezcles sintaxis Unicode matemática con LaTeX cuando exista una representación LaTeX equivalente. Verifica que cada \frac{}, \sqrt{}, subíndice, superíndice, matriz y entorno tenga sus llaves y delimitadores correctamente cerrados."
         };
 
         window.onload = () => {
