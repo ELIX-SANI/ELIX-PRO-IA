@@ -566,9 +566,9 @@ textarea::placeholder { color: #52525b; }
                     <div class="control-group">
                         <div>
                             Modo Académico: 
-                            <select id="academic-mode" class="highlight-select" onchange="this.className = this.value !== 'none' ? 'highlight-select' : ''">
-                                <option value="none">Desactivado</option>
-                                <option value="apa7" selected>APA 7ma Edición</option>
+                            <select id="academic-mode" onchange="this.className = this.value !== 'none' ? 'highlight-select' : ''">
+                                <option value="none" selected>Desactivado</option>
+                                <option value="apa7">APA 7ma Edición</option>
                                 <option value="vancouver">Vancouver</option>
                                 <option value="ieee">IEEE</option>
                             </select>
@@ -796,11 +796,83 @@ Objetivo: entregar una respuesta técnicamente sólida, clara y suficientemente 
         function obtenerChatActual() { return chats.find(c => c.id === currentChatId); }
         function guardarEnLocal() { localStorage.setItem('cienciaChatsData', JSON.stringify(chats)); }
 
+        // Normaliza únicamente errores de presentación matemáticos muy claros.
+        // No toca código real ni cambia la lógica de respuesta: solo prepara el LaTeX para MathJax.
+        function elixNormalizarLatexSeguro(texto) {
+            if (!texto) return '';
+
+            const convertirSegmento = (segmento) => {
+                const inlineCode = [];
+                let s = String(segmento).replace(/`[^`\n]+`/g, (match) => {
+                    const token = `ELIXINLINECODE${inlineCode.length}PLACEHOLDER`;
+                    inlineCode.push(match);
+                    return token;
+                });
+
+                s = s.split('\n').map((linea) => {
+                    const t = linea.trim();
+                    if (!t) return linea;
+
+                    // Si ya está correctamente delimitada, no se modifica.
+                    if (
+                        /^\$\$[\s\S]*\$\$$/.test(t) ||
+                        /^\$[^$]+\$$/.test(t) ||
+                        /^\\\([\s\S]*\\\)$/.test(t) ||
+                        /^\\\[[\s\S]*\\\]$/.test(t)
+                    ) return linea;
+
+                    // Los entornos LaTeX completos ya son reconocidos por el renderizador existente.
+                    if (/^\\begin\{[^}]+\}/.test(t) || /^\\end\{[^}]+\}/.test(t)) return linea;
+
+                    const señalLatex = /\\(?:frac|dfrac|tfrac|sqrt|sum|prod|int|lim|left|right|overline|underline|vec|hat|bar|mathbf|mathrm|mathit|mathbb|mathcal|operatorname|cdot|times|div|pm|mp|leq|geq|neq|approx|equiv|to|rightarrow|leftarrow|infty|partial|nabla|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|rho|sigma|phi|omega)(?:\b|\s*[_^{])/i.test(t);
+                    const estructuraMatematica = /[=<>^_+\-*/{}]/.test(t);
+                    const prefijoAntesDeLatex = t.includes('\\') ? t.slice(0, t.indexOf('\\')).trim() : '';
+                    const pareceProsa = (
+                        /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ¿¡][^=<>]{0,120}\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{3,}\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{3,}/.test(t) && !/[=<>]/.test(t)
+                    ) || /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{2,}/.test(prefijoAntesDeLatex.replace(/[A-Za-z]\s*[_^][A-Za-z0-9]+/g, ''));
+
+                    // Solo envuelve líneas que tienen señales inequívocas de LaTeX y estructura matemática.
+                    if (señalLatex && estructuraMatematica && !pareceProsa) {
+                        const prefijo = linea.match(/^\s*/)?.[0] || '';
+                        return `${prefijo}\\[${t}\\]`;
+                    }
+                    return linea;
+                }).join('\n');
+
+                inlineCode.forEach((codigo, i) => {
+                    s = s.replace(`ELIXINLINECODE${i}PLACEHOLDER`, () => codigo);
+                });
+                return s;
+            };
+
+            // Los bloques de código verdaderos se conservan intactos.
+            // Únicamente un bloque etiquetado explícitamente como latex/tex/math se interpreta como fórmula,
+            // salvo que sea un documento LaTeX completo.
+            return String(texto).split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g).map((parte) => {
+                const mathFence = parte.match(/^```(?:latex|tex|math)\s*\n([\s\S]*?)```$/i)
+                    || parte.match(/^~~~(?:latex|tex|math)\s*\n([\s\S]*?)~~~$/i);
+
+                if (mathFence) {
+                    const formula = String(mathFence[1] || '').trim();
+                    if (
+                        formula &&
+                        !/\\documentclass\b|\\begin\{document\}|\\usepackage\b/i.test(formula)
+                    ) {
+                        return `\\[\n${formula}\n\\]`;
+                    }
+                    return parte;
+                }
+
+                if (/^(?:```|~~~)/.test(parte)) return parte;
+                return convertirSegmento(parte);
+            }).join('');
+        }
+
         // ESTA ES LA FUNCIÓN MEJORADA QUE PROTEGE LAS ECUACIONES MATEMÁTICAS (CORREGIDA)
         function formatTextoMarkdown(text) { 
             if (!text) return '';
             
-            let procesado = text;
+            let procesado = elixNormalizarLatexSeguro(text);
             
             // 1. Convertir delimitadores de LaTeX a los estándar ($$ y $)
             procesado = procesado.replace(/\\\[/g, '$$$$').replace(/\\\]/g, '$$$$');
@@ -831,6 +903,35 @@ Objetivo: entregar una respuesta técnicamente sólida, clara y suficientemente 
         }
 
         function escapeHTML(str) { return (str || '').replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)); }
+
+        let elixMathRenderQueue = Promise.resolve();
+
+        async function elixEsperarMathJax(timeoutMs = 10000) {
+            const inicio = Date.now();
+            while (Date.now() - inicio < timeoutMs) {
+                if (window.MathJax?.typesetPromise) return window.MathJax;
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            return null;
+        }
+
+        function elixRenderizarMatematicasSeguro(elemento) {
+            elixMathRenderQueue = elixMathRenderQueue.then(async () => {
+                const MathJaxElix = await elixEsperarMathJax();
+                if (!MathJaxElix || !elemento?.isConnected) return;
+
+                if (MathJaxElix.startup?.promise) {
+                    try { await MathJaxElix.startup.promise; } catch (_) {}
+                }
+
+                if (!elemento?.isConnected) return;
+                await MathJaxElix.typesetPromise([elemento]);
+            }).catch(error => {
+                console.warn('Elix AI: no se pudo renderizar una expresión matemática.', error);
+            });
+
+            return elixMathRenderQueue;
+        }
 
         function renderizarListaChats() {
             const listDiv = document.getElementById('chat-list');
@@ -904,7 +1005,7 @@ Objetivo: entregar una respuesta técnicamente sólida, clara y suficientemente 
             chatContainer.appendChild(row);
             chatContainer.scrollTop = chatContainer.scrollHeight;
 
-            if (window.MathJax && window.MathJax.typesetPromise) window.MathJax.typesetPromise([row]).catch(err => console.log(err));
+            elixRenderizarMatematicasSeguro(row);
         }
 
         function autoResize(textarea) { textarea.style.height = 'auto'; textarea.style.height = (textarea.scrollHeight < 150 ? textarea.scrollHeight : 150) + 'px'; }
@@ -1015,7 +1116,7 @@ Objetivo: entregar una respuesta técnicamente sólida, clara y suficientemente 
             }
 
             let promptEnriquecido = `[DIRECTIVA DE SISTEMA: ${directivasThinking[nivelThinking]}]\n`;
-            promptEnriquecido += `[REGLA DE FORMATO MATEMÁTICO: Escribe TODAS las ecuaciones en formato LaTeX puro. Usa SIEMPRE "$$" para ecuaciones en bloque y "$" para ecuaciones en línea. ESTÁ ESTRICTAMENTE PROHIBIDO usar corchetes o paréntesis como delimitadores matemáticos.]\n\n`;
+            promptEnriquecido += `[REGLA DE FORMATO MATEMÁTICO: Escribe TODAS las ecuaciones en formato LaTeX puro. Usa SIEMPRE "$$" para ecuaciones en bloque y "$" para ecuaciones en línea. ESTÁ ESTRICTAMENTE PROHIBIDO usar corchetes o paréntesis como delimitadores matemáticos. NUNCA pongas una ecuación dentro de backticks ni dentro de bloques de código \`\`\`latex/\`\`\`tex/\`\`\`math. Todo comando matemático como \\frac, \\sqrt, \\sum o \\int debe quedar dentro de delimitadores matemáticos.]\n\n`;
             
             if (academicMode !== "none") {
                 let especificidadAPA = academicMode === "apa7" ? "Aplica rigurosamente las normas APA 7ma Edición." : "";
@@ -2964,7 +3065,8 @@ ${detalle}`);
 
         const format=elixFormatoExportacionLocal(texto);
         const accionFuerte=/\b(exporta|exportar|convierte|convertir|transforma|transformar|descarga|descargar|guardame|guardar|guarda)\b/.test(n);
-        const accionEntrega=/\b(hazme|dame|damelo|entregame|pasame|devuelveme|mandame|preparame|generame|creame|quiero|necesito)\b/.test(n);
+        const accionEntrega=/\b(hazme|dame|damelo|entregame|entregalo|pasame|pasalo|devuelveme|mandame|mandalo|preparame|generame|creame|quiero|necesito)\b/.test(n);
+        const accionEntregaNatural=/\b(?:que\s+)?me\s+(?:lo\s+|la\s+|el\s+)?(?:des|de|das|entregues|mandes|pases|devuelvas)\s*(?:(?:en|a|como)\s+)?(?:un\s+|una\s+)?(?:archivo\s+(?:de\s+)?|formato\s+(?:de\s+)?)?(?:word|docx|doc|dox|dovx|dcx|wrd|wodr|wrod|pdf|pfd)\b/.test(n);
         const objetoExistente=/\b(chat|conversacion|historial|respuesta|mensaje|parte|fragmento|seccion|seleccion|lo anterior|eso)\b/.test(n);
 
         // Verbos inequívocos de exportación + referencia a chat/documento: consultar al router
@@ -2973,7 +3075,7 @@ ${detalle}`);
 
         // Si reconocemos un formato, exigimos además intención real de entrega/exportación.
         // Así "analiza este PDF" o "qué es Word" siguen siendo preguntas normales.
-        if(format && (accionFuerte || accionEntrega || objetoExistente)) return true;
+        if(format && (accionFuerte || accionEntrega || accionEntregaNatural || objetoExistente)) return true;
 
         // Formas breves naturales sin verbo explícito: "chat en Word", "la última respuesta en docx".
         if(format && /\b(chat|conversacion|historial|ultima respuesta|ultimo mensaje|parte|fragmento|seccion)\b/.test(n)) return true;
@@ -2994,6 +3096,10 @@ ${detalle}`);
 
     function elixLimpiarPromptExportacionLocal(texto){
         let s=String(texto||'').trim();
+        // Formas naturales como: "y que me lo des en formato de Word".
+        // Se elimina únicamente la cláusula final de entrega para conservar intacta la tarea intelectual.
+        s=s.replace(/\s*(?:,|;)?\s*(?:y\s+)?(?:para\s+)?(?:que\s+)?me\s+(?:lo\s+|la\s+|el\s+)?(?:des|de|das|entregues|mandes|pases|devuelvas)\s*(?:en|a|como)?\s*(?:un\s+|una\s+)?(?:archivo\s+(?:de\s+)?)?(?:formato\s+(?:de\s+)?)?(?:word|docx|dox|dovx|dcx|wrd|wodr|wrod|doc|pdf|pfd)(?:\s+(?:de|con)\s+(?:esto|eso|lo anterior))?[.!?\s]*$/i,'').trim();
+
         s=s.replace(/\s+(?:(?:y\s+(?:luego|despues|después|al\s+final))|y|,)?\s*(?:por\s+favor\s+)?(?:hazme|haz|dame|damelo|dámelo|entregame|entrégame|entregamelo|entrégamelo|pasame|pásame|pasamelo|pásamelo|devuelveme|devuélveme|devuelvemelo|devuélvemelo|mandame|mándame|mandamelo|mándamelo|genera|crea|prepara|exporta|convierte|transforma|guardame|guárdame|guardamelo|guárdamelo|descargame|descárgame|descargamelo|descárgamelo)\s+(?:esto\s+|eso\s+|lo\s+)?(?:en|a|como)?\s*(?:un\s+|una\s+|formato\s+)?(?:word|docx|dox|dovx|dcx|wrd|wodr|wrod|doc|pdf|pfd)(?:\s+(?:de|con)\s+(?:esto|eso|lo anterior))?[.!?\s]*$/i,'').trim();
         const inicial=s.match(/^(?:hazme|haz|dame|quiero|necesito|genera|crea|prepara)\s+(?:un\s+|una\s+)?(?:word|docx|dox|dovx|doc|pdf)\s+(?:sobre|de)\s+(.+)$/i);
         if(inicial) s=`Desarrolla ${inicial[1].trim()}`;
@@ -3011,7 +3117,8 @@ ${detalle}`);
         const format=elixFormatoExportacionLocal(texto);
         if(!format) return null;
         const n=elixNormalizarExportacion(texto);
-        const hayAccion=/(dame|entrega|export|genera|crea|descarg|guarda|haz|prepara|pasa|convierte|convert|transform|devuel|manda|quiero|necesito)/.test(n);
+        const hayAccion=/(dame|entrega|export|genera|crea|descarg|guarda|haz|prepara|pasa|convierte|convert|transform|devuel|manda|quiero|necesito)/.test(n)
+            || /\b(?:que\s+)?me\s+(?:lo\s+|la\s+|el\s+)?(?:des|de|das|entregues|mandes|pases|devuelvas)\s*(?:(?:en|a|como)\s+)?(?:un\s+|una\s+)?(?:archivo\s+(?:de\s+)?|formato\s+(?:de\s+)?)?(?:word|docx|doc|dox|dovx|dcx|wrd|wodr|wrod|pdf|pfd)\b/.test(n);
         const hayChat=/(chat|conversacion|historial)/.test(n);
         if(!hayAccion && !hayChat) return null;
 
@@ -3806,49 +3913,84 @@ ${detalle}`);
         o.innerHTML=`<div class="elix-legal-box elix-manual-box" role="dialog" aria-modal="true" aria-labelledby="elix-manual-title">
             <button class="elix-legal-close" type="button">Cerrar</button>
             <h2 id="elix-manual-title">Manual de usuario — Elix AI</h2>
-            <div class="elix-manual-intro"><strong>Elix AI</strong> reúne conversación, análisis académico, lectura de archivos e imágenes, búsqueda cuando es necesaria y exportación profesional. Puedes usar lenguaje natural: no necesitas aprender comandos rígidos.</div>
+            <div class="elix-manual-intro"><strong>Elix AI</strong> permite conversar, analizar información, trabajar con archivos e imágenes, buscar fuentes cuando corresponde, generar imágenes y crear archivos Word o PDF desde el propio chat. Puedes escribir de forma natural: no necesitas memorizar comandos.</div>
 
             <div class="elix-manual-grid">
-                <section class="elix-manual-card"><h3>1. Chats y análisis</h3><p>Usa <strong>+ Nuevo Análisis</strong> para iniciar un tema independiente. Los chats aparecen en la barra lateral; puedes abrirlos, renombrarlos o eliminarlos. Conviene usar un chat por tema para mantener el contexto ordenado.</p></section>
-                <section class="elix-manual-card"><h3>2. Modos de análisis</h3><p><strong>Rápido</strong> prioriza respuestas directas. <strong>Estándar</strong> equilibra claridad y profundidad. <strong>Riguroso</strong> exige mayor formalidad técnica. <strong>Profundo</strong> aplica el máximo nivel de rigor disponible para tareas complejas.</p></section>
-                <section class="elix-manual-card"><h3>3. Modo académico</h3><p>APA 7, Vancouver e IEEE activan una respuesta orientada a citas y referencias. Si el modo académico está desactivado, Elix AI decide automáticamente si una consulta necesita búsqueda externa. Puedes indicar expresamente “no busques en internet” cuando quieras trabajar solo con el material aportado.</p></section>
-                <section class="elix-manual-card"><h3>4. Cómo escribir un buen prompt</h3><p>Indica la tarea, el nivel de detalle, el formato esperado y cualquier restricción. Para mejores resultados, formula una instrucción completa.</p><span class="elix-manual-example">Analiza el archivo adjunto, explica los resultados paso a paso y destaca las conclusiones principales.</span></section>
+                <section class="elix-manual-card">
+                    <h3>1. Chats y contexto</h3>
+                    <p>Usa <strong>+ Nuevo Análisis</strong> para comenzar un tema independiente. Los chats quedan en la barra lateral y puedes abrirlos, renombrarlos o eliminarlos. Dentro de un mismo chat, Elix AI utiliza la conversación previa como contexto cuando es útil.</p>
+                </section>
+                <section class="elix-manual-card">
+                    <h3>2. Modo de análisis</h3>
+                    <p><strong>Rápido</strong> prioriza respuestas directas. <strong>Estándar</strong> equilibra claridad y profundidad. <strong>Riguroso</strong> aumenta el nivel técnico. <strong>Profundo</strong> solicita el mayor nivel de análisis disponible para tareas complejas.</p>
+                </section>
+                <section class="elix-manual-card">
+                    <h3>3. Modo académico</h3>
+                    <p>Al abrir Elix AI, el modo académico está <strong>desactivado</strong>. En ese estado, Elix AI decide si la consulta necesita búsqueda externa. Si activas <strong>APA 7, Vancouver o IEEE</strong>, la respuesta se prepara con citas y referencias en el formato elegido. Puedes pedir expresamente que no se busque en internet cuando quieras trabajar únicamente con el material que aportaste.</p>
+                </section>
+                <section class="elix-manual-card">
+                    <h3>4. Cómo pedir una tarea</h3>
+                    <p>Indica qué necesitas, el nivel de detalle y el resultado esperado. Puedes combinar instrucciones en una sola petición.</p>
+                    <span class="elix-manual-example">Analiza el documento adjunto, explícame los resultados paso a paso y concluye con los puntos más importantes.</span>
+                </section>
             </div>
 
             <h3>5. Archivos e imágenes</h3>
-            <p>Puedes adjuntar imágenes, PDF, Word, PowerPoint, Excel, TXT, CSV, Markdown y JSON. Elix AI prepara el contenido antes de responder para conservar texto, tablas, fórmulas, gráficos, imágenes y datos relevantes cuando el formato lo permite.</p>
-            <ul><li><strong>Imágenes:</strong> se normalizan automáticamente para mejorar compatibilidad y lectura.</li><li><strong>PDF:</strong> los documentos grandes pueden procesarse página por página.</li><li><strong>Word/PowerPoint:</strong> se analiza el texto y también los elementos visuales extraíbles.</li><li><strong>Excel:</strong> se leen hojas, datos y fórmulas; los elementos visuales compatibles también pueden analizarse.</li></ul>
-            <div class="elix-manual-note">Si una parte de una imagen o documento no es legible, formula la pregunta indicando exactamente qué zona, tabla, ecuación o página quieres revisar.</div>
-            <div class="elix-manual-note">También puedes pedir generación de imágenes dentro del chat, por ejemplo: <strong>"Hazme una infografía científica sobre la célula animal"</strong>, <strong>"Crea una imagen realista de eso"</strong> o <strong>"Genera un diagrama del proceso basado en el chat"</strong>. Elix AI usará tu instrucción y, cuando haga falta, el contexto reciente del chat o los archivos adjuntos.</div>
+            <p>Puedes adjuntar imágenes, PDF, Word, PowerPoint, Excel, TXT, CSV, Markdown y JSON. Elix AI prepara el contenido antes de responder para conservar, cuando el formato lo permite, texto, tablas, fórmulas, gráficos e imágenes relevantes.</p>
+            <ul>
+                <li><strong>Imágenes:</strong> se preparan automáticamente para facilitar su lectura.</li>
+                <li><strong>PDF:</strong> los documentos extensos pueden procesarse por páginas.</li>
+                <li><strong>Word y PowerPoint:</strong> se analiza el texto y también los elementos visuales extraíbles.</li>
+                <li><strong>Excel:</strong> se leen hojas, datos y fórmulas; los elementos visuales compatibles también pueden analizarse.</li>
+            </ul>
+            <div class="elix-manual-note">Un documento con muchas imágenes, gráficos o elementos visuales puede tardar más porque Elix AI debe prepararlos antes de elaborar la respuesta. Si solo te interesa una sección concreta, indicar la página, tabla o tema puede acelerar el trabajo.</div>
 
-            <h3>6. Exportar a Word o PDF mediante el chat</h3>
-            <p>La exportación se solicita escribiendo una orden. Elix AI distingue entre exportar contenido existente y generar contenido nuevo antes de crear el archivo.</p>
-            <span class="elix-manual-example">Convierte todo este chat en Word.</span>
-            <span class="elix-manual-example">Pásame tu última respuesta a Word.</span>
-            <span class="elix-manual-example">Exporta solo la parte donde hablamos de números irracionales a Word.</span>
-            <span class="elix-manual-example">Exporta el chat de Química orgánica a Word.</span>
+            <h3>6. Generar imágenes</h3>
+            <p>Pide la imagen directamente en el chat. Elix AI puede utilizar tu instrucción, el contexto reciente de la conversación y, cuando corresponde, la información obtenida de los archivos adjuntos.</p>
+            <span class="elix-manual-example">Hazme una infografía científica sobre la célula animal.</span>
+            <span class="elix-manual-example">Genera un diagrama del proceso basado en lo que acabamos de investigar.</span>
+            <span class="elix-manual-example">Crea una imagen basada en el documento que adjunté.</span>
+
+            <h3>7. Crear un Word o PDF desde el chat</h3>
+            <p>No necesitas escribir literalmente “exportar”. Puedes pedir el archivo con lenguaje natural. Si la orden contiene una tarea nueva y además pide Word o PDF, Elix AI primero realiza la tarea y después crea el archivo con el contenido recién generado.</p>
+            <span class="elix-manual-example">Explícame la fotosíntesis y que me lo des en formato de Word.</span>
             <span class="elix-manual-example">Investiga la Segunda Guerra Mundial y al final hazme un Word de la respuesta.</span>
-            <p>Si pides contenido nuevo y un archivo, Elix AI primero realiza la tarea y después exporta <strong>solo el contenido recién generado</strong>, salvo que indiques expresamente “todo el chat”. También se toleran errores comunes al escribir Word/DOCX.</p>
+            <span class="elix-manual-example">Dame tu última respuesta en formato Word.</span>
+            <span class="elix-manual-example">Convierte todo este chat en PDF.</span>
+            <span class="elix-manual-example">Exporta solo la parte donde hablamos de números irracionales a Word.</span>
+            <div class="elix-manual-note">Cuando pides contenido nuevo + archivo, por defecto se exporta la respuesta nueva. Si quieres incluir todo lo anterior, escribe expresamente <strong>“todo el chat”</strong>.</div>
 
-            <h3>7. Exportar una parte específica</h3>
-            <p>Puedes pedir un tema, fragmento o respuesta concreta del chat. Sé descriptivo cuando existan varias partes parecidas.</p>
+            <h3>8. Exportar otro chat o una parte concreta</h3>
+            <p>Puedes identificar otro chat por su nombre o tema, o pedir únicamente un fragmento. Cuanto más precisa sea la referencia, más fiable será la selección.</p>
+            <span class="elix-manual-example">Exporta el chat de Química orgánica a Word.</span>
             <span class="elix-manual-example">Solo la explicación de la ley de Ohm, sin el resto del chat, en Word.</span>
-            <span class="elix-manual-example">Desde la pregunta sobre mitosis hasta la tabla comparativa, pásalo a Word.</span>
+            <span class="elix-manual-example">Desde la pregunta sobre mitosis hasta la tabla comparativa, pásalo a PDF.</span>
 
-            <h3>8. Ecuaciones, tablas e imágenes en Word</h3>
-            <p>Las ecuaciones se preparan con tamaño proporcional para evitar fórmulas gigantes. Los títulos, listas, tablas, enlaces e imágenes compatibles se convierten a una estructura de documento. Las ecuaciones en bloque se centran automáticamente y las ecuaciones en línea permanecen integradas en el párrafo.</p>
+            <h3>9. Fórmulas, tablas e imágenes</h3>
+            <p>En el chat, las expresiones matemáticas se muestran con renderizado matemático para que fracciones, raíces, integrales, sumatorias y otras ecuaciones se vean como fórmulas y no como código. En Word, Elix AI prepara ecuaciones, títulos, listas, tablas, enlaces e imágenes compatibles dentro de la estructura del documento.</p>
 
-            <h3>9. Detener y editar</h3>
-            <p>Si una solicitud tarda demasiado o necesitas cambiarla, utiliza el control de detener cuando esté disponible. Puedes editar o volver a enviar una instrucción para corregir el enfoque sin crear otro chat.</p>
+            <h3>10. Detener, editar y volver a intentar</h3>
+            <p>Si una solicitud tarda demasiado, utiliza el control de detener cuando esté disponible. El botón de edición de tus mensajes permite recuperar una instrucción, modificarla y volver a enviarla. Si un servicio externo falla de forma puntual, volver a intentar la misma solicitud puede resolverlo.</p>
 
-            <h3>10. Recomendaciones</h3>
-            <ul><li>Usa un chat separado para trabajos extensos diferentes.</li><li>Indica páginas o secciones cuando un documento sea muy largo.</li><li>Revisa datos importantes antes de utilizarlos en trabajos académicos o decisiones relevantes.</li><li>Para una exportación limpia, especifica “última respuesta”, “parte sobre…” o “todo el chat”.</li></ul>
+            <h3>11. Recomendaciones de uso</h3>
+            <ul>
+                <li>Usa un chat diferente para trabajos extensos que no estén relacionados.</li>
+                <li>En documentos largos, indica páginas, tablas o secciones cuando sea posible.</li>
+                <li>Activa el modo académico solo cuando necesites citas y referencias formales.</li>
+                <li>Para Word o PDF, indica si quieres la última respuesta, una parte concreta o todo el chat.</li>
+                <li>Revisa datos importantes antes de utilizarlos en trabajos académicos o decisiones relevantes.</li>
+            </ul>
 
-            <h3>11. Privacidad, sesión y seguridad</h3>
-            <p>La sesión puede mantenerse iniciada en el dispositivo hasta que cierres sesión o el acceso deje de ser válido. No compartas tus credenciales y evita cargar información de terceros si no tienes autorización para procesarla.</p>
+            <h3>12. Cuenta, privacidad y seguridad</h3>
+            <p>La sesión puede mantenerse iniciada en el dispositivo hasta que cierres sesión o el acceso deje de ser válido. Protege tus credenciales y evita cargar información personal, confidencial o de terceros si no tienes autorización para procesarla.</p>
 
-            <h3>12. Si algo no funciona</h3>
-            <ul><li>Actualiza la página y vuelve a intentar la operación.</li><li>Comprueba que el archivo no esté dañado y que use un formato admitido.</li><li>Si una selección para exportar es ambigua, describe el tema con más precisión.</li><li>Si una respuesta importante parece incompleta, solicita una verificación o vuelve a formular la instrucción.</li></ul>
+            <h3>13. Si algo no funciona</h3>
+            <ul>
+                <li>Vuelve a intentar la operación una vez si el error fue puntual.</li>
+                <li>Comprueba que el archivo no esté dañado y que use un formato admitido.</li>
+                <li>Si una selección para exportar es ambigua, identifica mejor el tema o la respuesta.</li>
+                <li>Si una fórmula importante no se muestra correctamente, vuelve a generar la respuesta; Elix AI intentará normalizar el formato matemático antes de mostrarla.</li>
+            </ul>
 
             <div class="elix-legal-brand">© InOutBio.Os · Manual de usuario de Elix AI<br><span>Desarrollador: Sebastián Neto Ibarra</span></div>
         </div>`;
