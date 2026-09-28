@@ -697,6 +697,10 @@ textarea::placeholder { color: #52525b; }
         let chats = []; 
         let currentChatId = null;
 
+        // Regla matemática centralizada: String.raw conserva literalmente las barras de LaTeX.
+        // Así evitamos que secuencias como \\frac o \\sqrt sean interpretadas por JavaScript como escapes.
+        const ELIX_REGLA_LATEX = String.raw`REGLA MATEMÁTICA OBLIGATORIA: Toda expresión matemática, química o científica que requiera notación deberá escribirse exclusivamente en LaTeX válido. Para fórmulas dentro de una oración utiliza \( ... \). Para ecuaciones independientes utiliza \[ ... \]. Nunca escribas fórmulas como texto plano cuando corresponda notación matemática. Nunca coloques fórmulas dentro de bloques de código Markdown. Nunca uses cercas de código etiquetadas como latex, tex o math, ni backticks, para contener ecuaciones. No mezcles sintaxis Unicode matemática con LaTeX cuando exista una representación LaTeX equivalente. Verifica que cada \frac{}, \sqrt{}, subíndice, superíndice, matriz y entorno tenga sus llaves y delimitadores correctamente cerrados.`;
+
         const directivasThinking = {
             low: `Instrucción de respuesta RÁPIDA:
 Prioriza velocidad, precisión y utilidad inmediata.
@@ -712,6 +716,8 @@ REGLAS:
 - Si falta un dato indispensable, indícalo claramente.
 - Respeta cualquier directiva académica, matemática o de formato recibida junto con esta instrucción.
 - Evita frases de relleno como "claro", "por supuesto", "a continuación" o resúmenes de lo que el usuario acaba de pedir.
+
+${ELIX_REGLA_LATEX}
 
 Objetivo: producir la respuesta correcta con la menor cantidad de texto y pasos innecesarios posible.`,
             medium: `Instrucción de respuesta ESTÁNDAR:
@@ -731,24 +737,15 @@ REGLAS:
 - Respeta estrictamente cualquier directiva académica, bibliográfica, matemática o de formato recibida junto con esta instrucción.
 - Evita introducciones genéricas, repeticiones del enunciado y conclusiones que solo repitan lo ya explicado.
 
-IMPORTANTE:
-Toda expresión matemática, química o científica que requiera notación deberá escribirse exclusivamente en LaTeX válido.
-
-Para fórmulas dentro de una oración utiliza:
-\( ... \)
-
-Para ecuaciones independientes utiliza:
-\[ ... \]
-
-Nunca escribas fórmulas como texto plano.
-Nunca coloques fórmulas dentro de bloques de código Markdown.
-Nunca uses ```latex, ```math ni backticks para contener ecuaciones.
-No mezcles sintaxis Unicode matemática con LaTeX cuando exista una representación LaTeX equivalente.
-Verifica que cada \frac{}, \sqrt{}, subíndice, superíndice, matriz y entorno tenga sus llaves y delimitadores correctamente cerrados.
+${ELIX_REGLA_LATEX}
 
 Objetivo: entregar una respuesta técnicamente sólida, clara y suficientemente desarrollada, sin llegar al nivel de exhaustividad de los modos Riguroso o Profundo.`,
-            high: "Instrucción CRÍTICA: Eres un modelo estrictamente técnico y formal. NO debes hacer nada intuitivo ni inventar información. Basa tu respuesta EXCLUSIVAMENTE en literatura científica de alto nivel (mínimo revistas científicas Q3, libros formales o tesis). Enfócate única y exclusivamente en responder lo que pide el prompt de forma técnica, sin suposiciones. IMPORTANTE: Toda expresión matemática, química o científica que requiera notación deberá escribirse exclusivamente en LaTeX válido. Para fórmulas dentro de una oración utiliza \(...\). Para ecuaciones independientes utiliza \(...\). Nunca escribas fórmulas como texto plano. Nunca coloques fórmulas dentro de bloques de código Markdown. Nunca uses latex, math ni backticks para contener ecuaciones. No mezcles sintaxis Unicode matemática con LaTeX cuando exista una representación LaTeX equivalente. Verifica que cada \frac{}, \sqrt{}, subíndice, superíndice, matriz y entorno tenga sus llaves y delimitadores correctamente cerrados.",
-            max: "Instrucción CRÍTICA MÁXIMA e inquebrantable: Eres el nivel de rigor máximo estrictamente técnico y formal. NO debes hacer nada intuitivo ni inventar información. Basa tu respuesta EXCLUSIVAMENTE en literatura científica del más alto nivel solo revistas de primer nivel revisadas por pares (ej. Science, Nature) o literatura de universidades de élite (MIT, Harvard). MINIMO debes usar 10 fuentes bibliográficas para tu respuesta. CERO literatura de tesis. Enfócate única y exclusivamente en responder lo que pide el prompt de forma técnica, sin suposiciones. Debes redactar la respuesta con lenguaje científico de alto nivel y sin cometer ningún error de redacción, grámática u ortografía. IMPORTANTE: Toda expresión matemática, química o científica que requiera notación deberá escribirse exclusivamente en LaTeX válido. Para fórmulas dentro de una oración utiliza \(...\). Para ecuaciones independientes utiliza \(...\). Nunca escribas fórmulas como texto plano. Nunca coloques fórmulas dentro de bloques de código Markdown. Nunca uses latex, math ni backticks para contener ecuaciones. No mezcles sintaxis Unicode matemática con LaTeX cuando exista una representación LaTeX equivalente. Verifica que cada \frac{}, \sqrt{}, subíndice, superíndice, matriz y entorno tenga sus llaves y delimitadores correctamente cerrados."
+            high: `Instrucción CRÍTICA: Eres un modelo estrictamente técnico y formal. NO debes hacer nada intuitivo ni inventar información. Basa tu respuesta EXCLUSIVAMENTE en literatura científica de alto nivel (mínimo revistas científicas Q3, libros formales o tesis). Enfócate única y exclusivamente en responder lo que pide el prompt de forma técnica, sin suposiciones.
+
+${ELIX_REGLA_LATEX}`,
+            max: `Instrucción CRÍTICA MÁXIMA e inquebrantable: Eres el nivel de rigor máximo estrictamente técnico y formal. NO debes hacer nada intuitivo ni inventar información. Basa tu respuesta EXCLUSIVAMENTE en literatura científica del más alto nivel: revistas de primer nivel revisadas por pares (por ejemplo Science o Nature) o literatura de universidades de élite (MIT, Harvard). MÍNIMO debes usar 10 fuentes bibliográficas para tu respuesta. CERO literatura de tesis. Enfócate única y exclusivamente en responder lo que pide el prompt de forma técnica, sin suposiciones. Debes redactar la respuesta con lenguaje científico de alto nivel y sin cometer errores de redacción, gramática u ortografía.
+
+${ELIX_REGLA_LATEX}`
         };
 
         window.onload = () => {
@@ -3491,6 +3488,251 @@ ${detalle}`);
         return await elixWordSvgAPng(svg,display);
     }
 
+
+    // =========================================================
+    // WORD: ECUACIONES NATIVAS EDITABLES (OMML)
+    // Convierte el árbol matemático que MathJax ya genera desde LaTeX
+    // a Office Math Markup Language. No rasteriza las fórmulas.
+    // =========================================================
+    function elixWordMathTextoNodo(node){
+        if(!node) return '';
+        try{
+            const t=node.getText?.();
+            if(t!==undefined && t!==null) return String(t);
+        }catch(_){ }
+        return Array.from(node.childNodes||[]).map(elixWordMathTextoNodo).join('');
+    }
+
+    function elixWordMathAttrs(node){
+        try{ return node?.attributes?.getAllAttributes?.() || {}; }
+        catch(_){ return {}; }
+    }
+
+    function elixWordMathUnwrap(node){
+        let n=node;
+        const wrappers=new Set(['math','inferredMrow','TeXAtom','mstyle','mpadded','semantics']);
+        let guard=0;
+        while(n && wrappers.has(n.kind) && Array.from(n.childNodes||[]).length===1 && guard++<12){
+            n=Array.from(n.childNodes||[])[0];
+        }
+        return n || node;
+    }
+
+    function elixWordOmmlRun(texto,node=null,forzarNormal=false){
+        let t=String(texto??'')
+            .replace(/[\u2061\u2062\u2063\u2064\u200B\uFEFF]/g,'');
+        if(!t) return '';
+
+        const attrs=elixWordMathAttrs(node);
+        const variant=String(attrs.mathvariant||'').toLowerCase();
+        const props=[];
+
+        if(forzarNormal || node?.kind==='mtext' || variant==='normal' || (node?.kind==='mi' && t.length>1)) props.push('<m:nor/>');
+
+        if(variant.includes('bold') && variant.includes('italic')) props.push('<m:sty m:val="bi"/>');
+        else if(variant.includes('bold')) props.push('<m:sty m:val="b"/>');
+        else if(variant.includes('italic')) props.push('<m:sty m:val="i"/>');
+
+        if(variant.includes('double-struck')) props.push('<m:scr m:val="double-struck"/>');
+        else if(variant.includes('fraktur')) props.push('<m:scr m:val="fraktur"/>');
+        else if(variant.includes('script')) props.push('<m:scr m:val="script"/>');
+        else if(variant.includes('sans-serif')) props.push('<m:scr m:val="sans-serif"/>');
+        else if(variant.includes('monospace')) props.push('<m:scr m:val="monospace"/>');
+
+        return `<m:r>${props.length?`<m:rPr>${props.join('')}</m:rPr>`:''}<m:t xml:space="preserve">${elixWordXml(t)}</m:t></m:r>`;
+    }
+
+    function elixWordMathEsNario(texto){
+        return ['∑','∏','∐','∫','∬','∭','∮','∯','∰','⋃','⋂'].includes(String(texto||''));
+    }
+
+    function elixWordMathNario(chr,subXml='',supXml=''){
+        const sub=subXml||'';
+        const sup=supXml||'';
+        return `<m:nary><m:naryPr><m:chr m:val="${elixWordAttr(chr)}"/><m:limLoc m:val="undOvr"/><m:grow m:val="1"/>${sub?'<m:subHide m:val="0"/>':'<m:subHide m:val="1"/>'}${sup?'<m:supHide m:val="0"/>':'<m:supHide m:val="1"/>'}</m:naryPr><m:sub>${sub}</m:sub><m:sup>${sup}</m:sup><m:e/></m:nary>`;
+    }
+
+    function elixWordMathDelimiter(node){
+        const kids=Array.from(node?.childNodes||[]);
+        if(kids.length<2) return null;
+        const first=elixWordMathUnwrap(kids[0]);
+        const last=elixWordMathUnwrap(kids[kids.length-1]);
+        if(first?.kind!=='mo' || last?.kind!=='mo') return null;
+        const left=elixWordMathTextoNodo(first);
+        const right=elixWordMathTextoNodo(last);
+        const izquierdos=new Set(['(','[','{','|','‖','⟨','⌈','⌊']);
+        const derechos=new Set([')',']','}','|','‖','⟩','⌉','⌋','']);
+        if(!izquierdos.has(left) || !derechos.has(right)) return null;
+        return {left,right,inner:kids.slice(1,-1)};
+    }
+
+    function elixWordMmlHijos(nodes){
+        return Array.from(nodes||[]).map(elixWordMmlNodoAOmml).join('');
+    }
+
+    function elixWordMmlNodoAOmml(node){
+        if(!node) return '';
+        const kind=String(node.kind||'');
+        const kids=Array.from(node.childNodes||[]);
+        const attrs=elixWordMathAttrs(node);
+
+        if(kind==='text') return elixWordOmmlRun(elixWordMathTextoNodo(node),node,false);
+        if(kind==='annotation' || kind==='annotation-xml' || kind==='none') return '';
+
+        if(['math','inferredMrow','TeXAtom','mstyle','mpadded','maction'].includes(kind)){
+            return elixWordMmlHijos(kids);
+        }
+
+        if(kind==='semantics'){
+            const principal=kids.find(k=>!['annotation','annotation-xml'].includes(String(k?.kind||'')));
+            return principal ? elixWordMmlNodoAOmml(principal) : '';
+        }
+
+        if(kind==='mrow'){
+            const d=elixWordMathDelimiter(node);
+            if(d){
+                const inner=elixWordMmlHijos(d.inner);
+                return `<m:d><m:dPr><m:begChr m:val="${elixWordAttr(d.left)}"/><m:endChr m:val="${elixWordAttr(d.right)}"/><m:grow m:val="1"/></m:dPr><m:e>${inner}</m:e></m:d>`;
+            }
+            return elixWordMmlHijos(kids);
+        }
+
+        if(kind==='mi' || kind==='mn' || kind==='mo' || kind==='mtext' || kind==='ms'){
+            const txt=elixWordMathTextoNodo(node);
+            return elixWordOmmlRun(txt,node,kind==='mtext'||kind==='ms');
+        }
+
+        if(kind==='mspace'){
+            const width=String(attrs.width||'');
+            const n=parseFloat(width);
+            return (Number.isFinite(n) && n>=0.2) ? elixWordOmmlRun(' ',null,true) : elixWordOmmlRun(' ',null,true);
+        }
+
+        if(kind==='mfrac'){
+            const num=elixWordMmlNodoAOmml(kids[0]);
+            const den=elixWordMmlNodoAOmml(kids[1]);
+            const noBar=String(attrs.linethickness||'').trim()==='0';
+            return `<m:f>${noBar?'<m:fPr><m:type m:val="noBar"/></m:fPr>':''}<m:num>${num}</m:num><m:den>${den}</m:den></m:f>`;
+        }
+
+        if(kind==='msqrt'){
+            const e=elixWordMmlHijos(kids);
+            return `<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/><m:e>${e}</m:e></m:rad>`;
+        }
+
+        if(kind==='mroot'){
+            const e=elixWordMmlNodoAOmml(kids[0]);
+            const deg=elixWordMmlNodoAOmml(kids[1]);
+            return `<m:rad><m:radPr><m:degHide m:val="0"/></m:radPr><m:deg>${deg}</m:deg><m:e>${e}</m:e></m:rad>`;
+        }
+
+        if(kind==='msup' || kind==='msub' || kind==='msubsup'){
+            const baseNode=elixWordMathUnwrap(kids[0]);
+            const baseText=elixWordMathTextoNodo(baseNode);
+            const base=elixWordMmlNodoAOmml(kids[0]);
+            const sub=kind==='msub' ? elixWordMmlNodoAOmml(kids[1]) : (kind==='msubsup' ? elixWordMmlNodoAOmml(kids[1]) : '');
+            const sup=kind==='msup' ? elixWordMmlNodoAOmml(kids[1]) : (kind==='msubsup' ? elixWordMmlNodoAOmml(kids[2]) : '');
+
+            if(elixWordMathEsNario(baseText)) return elixWordMathNario(baseText,sub,sup);
+            if(kind==='msup') return `<m:sSup><m:e>${base}</m:e><m:sup>${sup}</m:sup></m:sSup>`;
+            if(kind==='msub') return `<m:sSub><m:e>${base}</m:e><m:sub>${sub}</m:sub></m:sSub>`;
+            return `<m:sSubSup><m:e>${base}</m:e><m:sub>${sub}</m:sub><m:sup>${sup}</m:sup></m:sSubSup>`;
+        }
+
+        if(kind==='munderover' || kind==='munder' || kind==='mover'){
+            const baseNode=elixWordMathUnwrap(kids[0]);
+            const baseText=elixWordMathTextoNodo(baseNode);
+            const base=elixWordMmlNodoAOmml(kids[0]);
+            const under=kind==='munder' ? elixWordMmlNodoAOmml(kids[1]) : (kind==='munderover' ? elixWordMmlNodoAOmml(kids[1]) : '');
+            const over=kind==='mover' ? elixWordMmlNodoAOmml(kids[1]) : (kind==='munderover' ? elixWordMmlNodoAOmml(kids[2]) : '');
+            const underText=kind!=='mover' ? elixWordMathTextoNodo(elixWordMathUnwrap(kids[1])) : '';
+            const overText=kind==='mover' ? elixWordMathTextoNodo(elixWordMathUnwrap(kids[1])) : (kind==='munderover' ? elixWordMathTextoNodo(elixWordMathUnwrap(kids[2])) : '');
+
+            if(elixWordMathEsNario(baseText)) return elixWordMathNario(baseText,under,over);
+
+            if(kind==='mover'){
+                if(['―','¯','‾'].includes(overText)) return `<m:bar><m:barPr><m:pos m:val="top"/></m:barPr><m:e>${base}</m:e></m:bar>`;
+                if(overText==='⏞') return `<m:groupChr><m:groupChrPr><m:chr m:val="⏞"/><m:pos m:val="top"/><m:vertJc m:val="bot"/></m:groupChrPr><m:e>${base}</m:e></m:groupChr>`;
+                if(['^','ˆ','→','←','↔','~','˜','˙','¨','ˇ','˘'].includes(overText)) return `<m:acc><m:accPr><m:chr m:val="${elixWordAttr(overText)}"/></m:accPr><m:e>${base}</m:e></m:acc>`;
+                return `<m:limUpp><m:e>${base}</m:e><m:lim>${over}</m:lim></m:limUpp>`;
+            }
+
+            if(kind==='munder'){
+                if(['―','_','‾'].includes(underText)) return `<m:bar><m:barPr><m:pos m:val="bot"/></m:barPr><m:e>${base}</m:e></m:bar>`;
+                if(underText==='⏟') return `<m:groupChr><m:groupChrPr><m:chr m:val="⏟"/><m:pos m:val="bot"/><m:vertJc m:val="top"/></m:groupChrPr><m:e>${base}</m:e></m:groupChr>`;
+                return `<m:limLow><m:e>${base}</m:e><m:lim>${under}</m:lim></m:limLow>`;
+            }
+
+            // Caso general con límite inferior y superior simultáneos.
+            return `<m:sSubSup><m:e>${base}</m:e><m:sub>${under}</m:sub><m:sup>${over}</m:sup></m:sSubSup>`;
+        }
+
+        if(kind==='mtable'){
+            const rows=kids.filter(r=>String(r?.kind||'')==='mtr');
+            const cols=Math.max(1,...rows.map(r=>Array.from(r.childNodes||[]).filter(c=>String(c?.kind||'')==='mtd').length));
+            const aligns=String(attrs.columnalign||'').trim().split(/\s+/).filter(Boolean);
+            const mcs=Array.from({length:cols},(_,i)=>{
+                const a=['left','right','center'].includes(aligns[i]) ? aligns[i] : 'center';
+                return `<m:mc><m:mcPr><m:count m:val="1"/><m:mcJc m:val="${a}"/></m:mcPr></m:mc>`;
+            }).join('');
+            const body=rows.map(r=>{
+                const cells=Array.from(r.childNodes||[]).filter(c=>String(c?.kind||'')==='mtd');
+                return `<m:mr>${cells.map(c=>`<m:e>${elixWordMmlHijos(c.childNodes||[])}</m:e>`).join('')}</m:mr>`;
+            }).join('');
+            return `<m:m><m:mPr><m:baseJc m:val="center"/><m:plcHide m:val="1"/><m:mcs>${mcs}</m:mcs></m:mPr>${body}</m:m>`;
+        }
+
+        if(kind==='mtr' || kind==='mtd') return elixWordMmlHijos(kids);
+
+        if(kind==='mfenced'){
+            const open=String(attrs.open??'('), close=String(attrs.close??')');
+            return `<m:d><m:dPr><m:begChr m:val="${elixWordAttr(open)}"/><m:endChr m:val="${elixWordAttr(close)}"/><m:grow m:val="1"/></m:dPr><m:e>${elixWordMmlHijos(kids)}</m:e></m:d>`;
+        }
+
+        if(kind==='menclose'){
+            const e=elixWordMmlHijos(kids);
+            const notation=String(attrs.notation||'').toLowerCase();
+            if(notation.includes('box')) return `<m:borderBox><m:e>${e}</m:e></m:borderBox>`;
+            return e;
+        }
+
+        if(kind==='mmultiscripts'){
+            const base=elixWordMmlNodoAOmml(kids[0]);
+            const post=kids.slice(1);
+            let split=post.findIndex(x=>String(x?.kind||'')==='mprescripts');
+            if(split<0) split=post.length;
+            const derecha=post.slice(0,split);
+            const sub=elixWordMmlNodoAOmml(derecha[0]);
+            const sup=elixWordMmlNodoAOmml(derecha[1]);
+            if(sub || sup) return `<m:sSubSup><m:e>${base}</m:e><m:sub>${sub}</m:sub><m:sup>${sup}</m:sup></m:sSubSup>`;
+            return base;
+        }
+
+        if(kind==='mphantom') return elixWordOmmlRun(' ',null,true);
+        if(kind==='merror') return elixWordMmlHijos(kids) || elixWordOmmlRun(elixWordMathTextoNodo(node),null,true);
+
+        // Fallback estructural: conserva el contenido del nodo sin convertirlo en imagen.
+        const hijos=elixWordMmlHijos(kids);
+        return hijos || elixWordOmmlRun(elixWordMathTextoNodo(node),node,false);
+    }
+
+    async function elixWordFormulaOmml(tex,display=false){
+        const mj=await elixEsperarMathJax(12000);
+        if(!mj) throw new Error('No se pudo iniciar el motor matemático.');
+        if(mj.startup?.promise){ try{ await mj.startup.promise; }catch(_){ } }
+
+        const doc=mj.startup?.document;
+        const inputJax=Array.from(doc?.inputJax||[]).find(j=>String(j?.name||'').toLowerCase().includes('tex')) || Array.from(doc?.inputJax||[])[0];
+        const MathItem=doc?.options?.MathItem;
+        if(!doc || !inputJax || typeof MathItem!=='function') throw new Error('El motor matemático no expuso el compilador TeX.');
+
+        const item=new MathItem(String(tex||''),inputJax,!!display);
+        item.compile(doc);
+        const contenido=elixWordMmlNodoAOmml(item.root);
+        if(!contenido) throw new Error('La ecuación quedó vacía al convertirla.');
+        return `<m:oMath>${contenido}</m:oMath>`;
+    }
+
     function elixWordRelacion(state,type,target,targetMode=''){
         const id=`rId${state.nextRel++}`;
         state.rels.push(`<Relationship Id="${id}" Type="${elixWordAttr(type)}" Target="${elixWordAttr(target)}"${targetMode?` TargetMode="${elixWordAttr(targetMode)}"`:''}/>`);
@@ -3552,11 +3794,11 @@ ${detalle}`);
             const tex=decodeURIComponent(node.getAttribute('data-tex')||'');
             const display=node.getAttribute('data-display')==='1';
             try{
-                const png=await elixWordFormulaPng(tex,display);
-                return elixWordAgregarImagen(state,png,display?'Ecuación':'Fórmula');
+                return await elixWordFormulaOmml(tex,display);
             }catch(error){
-                console.warn('Elix AI · fórmula Word:',error);
-                return elixWordRunTexto(tex,{...fmt,italic:true});
+                console.warn('Elix AI · ecuación nativa Word:',error);
+                // Fallback seguro: sigue siendo una ecuación editable de Word, nunca una imagen.
+                return `<m:oMath>${elixWordOmmlRun(tex,null,true)}</m:oMath>`;
             }
         }
 
@@ -3811,7 +4053,7 @@ ${detalle}`);
             body+=`<w:p><w:pPr><w:spacing w:before="220" w:after="0"/><w:jc w:val="center"/></w:pPr>${elixWordRunTexto('© InOutBio.Os',{color:'8A8A8A'})}</w:p>`;
             body+=`<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1020" w:right="1020" w:bottom="1134" w:left="1020" w:header="500" w:footer="500" w:gutter="0"/><w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>`;
 
-            const documentXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" mc:Ignorable="w14 wp14"><w:body>${body}</w:body></w:document>`;
+            const documentXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" mc:Ignorable="w14 wp14"><w:body>${body}</w:body></w:document>`;
 
             const relStyles='<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>';
             const docRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relStyles}${state.rels.join('')}</Relationships>`;
@@ -3982,7 +4224,7 @@ ${detalle}`);
             <span class="elix-manual-example">Desde la pregunta sobre mitosis hasta la tabla comparativa, pásalo a PDF.</span>
 
             <h3>9. Fórmulas, tablas e imágenes</h3>
-            <p>En el chat, las expresiones matemáticas se muestran con renderizado matemático para que fracciones, raíces, integrales, sumatorias y otras ecuaciones se vean como fórmulas y no como código. En Word, Elix AI prepara ecuaciones, títulos, listas, tablas, enlaces e imágenes compatibles dentro de la estructura del documento.</p>
+            <p>En el chat, las expresiones matemáticas se muestran con renderizado matemático para que fracciones, raíces, integrales, sumatorias y otras ecuaciones se vean como fórmulas y no como código. En Word, las fórmulas compatibles se insertan como <strong>ecuaciones nativas y editables de Word</strong>, no como capturas o imágenes; además se conservan títulos, listas, tablas, enlaces e imágenes compatibles del contenido.</p>
 
             <h3>10. Detener, editar y volver a intentar</h3>
             <p>Si una solicitud tarda demasiado, utiliza el control de detener cuando esté disponible. El botón de edición de tus mensajes permite recuperar una instrucción, modificarla y volver a enviarla. Si un servicio externo falla de forma puntual, volver a intentar la misma solicitud puede resolverlo.</p>
