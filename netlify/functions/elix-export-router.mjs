@@ -173,7 +173,8 @@ Además decide export_scope:
 
 Reglas críticas:
 - Tolera errores de escritura de Word/DOCX: dox, dovx, dcx, wodr, wrd, wrod, doc y similares. Tolera errores parecidos de PDF.
-- Si el usuario pide una tarea intelectual nueva y además un archivo, SIEMPRE generate_then_export. clean_prompt debe contener SOLO la tarea intelectual, eliminando por completo Word/DOCX/PDF/exportar/descargar/archivo.
+- Frases naturales como "que me lo des en formato de Word", "me lo das en Word", "quiero recibirlo en un archivo de Word", "dame la respuesta en formato Word" o equivalentes SON órdenes reales de creación/exportación de archivo aunque no aparezcan las palabras "exportar" o "descargar".
+- Si el usuario pide una tarea intelectual nueva y además un archivo, SIEMPRE generate_then_export. clean_prompt debe contener SOLO la tarea intelectual, eliminando por completo Word/DOCX/PDF/exportar/descargar/archivo y también cláusulas como "que me lo des en formato de Word".
 - En generate_then_export usa export_scope="generated_answer", salvo que el usuario pida explícitamente que al final se exporte TODO EL CHAT.
 - Si pide un chat existente por nombre o por tema, usa export_named. Usa el catálogo para asociarlo; si hay coincidencia fiable, devuelve chat_id y target_title exactos.
 - Si pide solo una sección, usa export_scope="selection" y conserva en selection_query la descripción de esa sección.
